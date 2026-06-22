@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import "./App.css";
-import click1 from "./sounds/click1.wav";
-import click2 from "./sounds/click2.wav";
+import { useMetronomePlayback } from "./useMetronomePlayback";
 
 const MIN_BPM = 40;
 const MAX_BPM = 220;
@@ -15,18 +14,8 @@ function clamp(value, min, max) {
 export default function App() {
   const [bpm, setBpm] = useState(DEFAULT_BPM);
   const [beatsPerMeasure, setBeatsPerMeasure] = useState(4);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [activeBeat, setActiveBeat] = useState(null);
-  const [lastBeatType, setLastBeatType] = useState("accent");
-  const [pulseTick, setPulseTick] = useState(0);
-
-  const regularClickRef = useRef(null);
-  const accentClickRef = useRef(null);
-  const timeoutRef = useRef(null);
-  const currentBeatRef = useRef(0);
-  const playingRef = useRef(false);
-  const bpmRef = useRef(bpm);
-  const beatsPerMeasureRef = useRef(beatsPerMeasure);
+  const { activeBeat, isPlaying, lastBeatType, pulseTick, togglePlayback } =
+    useMetronomePlayback({ bpm, beatsPerMeasure });
 
   const beatIndicators = useMemo(
     () =>
@@ -34,110 +23,8 @@ export default function App() {
         index,
         kind: index === 0 ? "accent" : "regular",
       })),
-    [beatsPerMeasure]
+    [beatsPerMeasure],
   );
-
-  const clearPlaybackTimer = () => {
-    if (timeoutRef.current) {
-      window.clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-  };
-
-  const playSound = (isAccent) => {
-    const audio = isAccent ? accentClickRef.current : regularClickRef.current;
-
-    if (!audio) {
-      return;
-    }
-
-    audio.currentTime = 0;
-    const playback = audio.play();
-
-    if (playback?.catch) {
-      playback.catch(() => {});
-    }
-  };
-
-  const scheduleNextBeat = () => {
-    clearPlaybackTimer();
-
-    if (!playingRef.current) {
-      return;
-    }
-
-    timeoutRef.current = window.setTimeout(() => {
-      const beatIndex = currentBeatRef.current;
-      const isAccent = beatIndex === 0;
-      const nextBeat = (beatIndex + 1) % beatsPerMeasureRef.current;
-
-      setActiveBeat(beatIndex);
-      setLastBeatType(isAccent ? "accent" : "regular");
-      setPulseTick((currentValue) => currentValue + 1);
-      playSound(isAccent);
-
-      currentBeatRef.current = nextBeat;
-      scheduleNextBeat();
-    }, 60000 / bpmRef.current);
-  };
-
-  const stopPlayback = () => {
-    playingRef.current = false;
-    setIsPlaying(false);
-    setActiveBeat(null);
-    clearPlaybackTimer();
-  };
-
-  const startPlayback = () => {
-    playingRef.current = true;
-    currentBeatRef.current = 0;
-    setIsPlaying(true);
-    setActiveBeat(0);
-    setLastBeatType("accent");
-    setPulseTick((currentValue) => currentValue + 1);
-    playSound(true);
-
-    currentBeatRef.current = 1 % beatsPerMeasureRef.current;
-    scheduleNextBeat();
-  };
-
-  useEffect(() => {
-    bpmRef.current = bpm;
-  }, [bpm]);
-
-  useEffect(() => {
-    beatsPerMeasureRef.current = beatsPerMeasure;
-
-    if (currentBeatRef.current >= beatsPerMeasure) {
-      currentBeatRef.current = 0;
-      setActiveBeat(playingRef.current ? 0 : null);
-    }
-
-    if (playingRef.current) {
-      startPlayback();
-    }
-  }, [beatsPerMeasure]);
-
-  useEffect(() => {
-    regularClickRef.current = new Audio(click1);
-    accentClickRef.current = new Audio(click2);
-
-    regularClickRef.current.preload = "auto";
-    accentClickRef.current.preload = "auto";
-
-    return () => {
-      clearPlaybackTimer();
-      playingRef.current = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!playingRef.current) {
-      return;
-    }
-
-    scheduleNextBeat();
-  }, [bpm]);
 
   const handleTempoInput = (event) => {
     const nextValue = Number(event.target.value);
@@ -156,11 +43,9 @@ export default function App() {
     <main className="app-shell">
       <section className="metronome" aria-labelledby="metronome-title">
         <header className="metronome__header">
-          <p className="metronome__eyebrow">Practice tool</p>
           <h1 className="metronome__title" id="metronome-title">
             Metronome
           </h1>
-          <p className="metronome__subtitle">Set the tempo and keep time.</p>
         </header>
 
         <div className="meter" aria-live="polite" aria-atomic="true">
@@ -243,7 +128,6 @@ export default function App() {
         <section className="pulse-panel" aria-labelledby="pulse-heading">
           <div className="control-panel__header">
             <h2 id="pulse-heading">Pulse</h2>
-            <p>{isPlaying ? "Accent on beat one" : "Ready to start"}</p>
           </div>
 
           <div className="beat-track" aria-hidden="true">
@@ -265,7 +149,7 @@ export default function App() {
           <button
             type="button"
             className={`transport ${isPlaying ? "is-playing" : ""}`}
-            onClick={() => (isPlaying ? stopPlayback() : startPlayback())}
+            onClick={togglePlayback}
             aria-pressed={isPlaying}
           >
             <span className="transport__copy">
