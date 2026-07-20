@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import "./App.css";
 import { MetronomeHeader } from "./components/MetronomeHeader";
 import { MeterDisplay } from "./components/MeterDisplay";
@@ -19,57 +19,94 @@ function clamp(value, min, max) {
 export default function App() {
   const [bpm, setBpm] = useState(DEFAULT_BPM);
   const [beatsPerMeasure, setBeatsPerMeasure] = useState(4);
-  const { activeBeat, isPlaying, lastBeatType, pulseTick, togglePlayback } =
-    useMetronomePlayback({ bpm, beatsPerMeasure });
+  const {
+    activeBeat,
+    isPlaying,
+    lastBeatType,
+    playbackError,
+    pendulumDurationMs,
+    pulseTick,
+    togglePlayback,
+  } = useMetronomePlayback({ bpm, beatsPerMeasure });
 
-  const handleTempoInput = (event) => {
-    const nextValue = Number(event.target.value);
-    setBpm(clamp(nextValue, MIN_BPM, MAX_BPM));
+  const handleTempoChange = (nextValue) => {
+    setBpm(clamp(Math.round(nextValue), MIN_BPM, MAX_BPM));
   };
 
-  const handleStepTempo = (delta) => {
-    setBpm((currentValue) => clamp(currentValue + delta, MIN_BPM, MAX_BPM));
-  };
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.code !== "Space" || event.repeat) {
+        return;
+      }
 
-  const handleSelectBeatsPerMeasure = (nextBeatsPerMeasure) => {
-    setBeatsPerMeasure(nextBeatsPerMeasure);
-  };
+      const target = event.target;
+      const isControl =
+        target instanceof HTMLButtonElement || target instanceof HTMLInputElement;
+
+      if (isControl) {
+        return;
+      }
+
+      event.preventDefault();
+      togglePlayback();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [togglePlayback]);
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_18%_0%,rgba(168,239,113,0.1),transparent_28rem),radial-gradient(circle_at_82%_16%,rgba(255,255,255,0.04),transparent_24rem),linear-gradient(180deg,#050708_0%,#020304_100%)] px-4 py-6 text-[var(--text)] sm:px-6 sm:py-10">
-      <section className="relative w-full max-w-[900px] overflow-hidden rounded-[20px] border border-[var(--border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.03),transparent_24%),linear-gradient(180deg,#161c19_0%,#101613_100%)] p-4 before:pointer-events-none before:absolute before:inset-3 before:rounded-[16px] before:border before:border-white/5 before:content-[''] sm:p-6">
-        <MetronomeHeader />
+    <main className="studio">
+      <h1 className="sr-only">Mechanical metronome</h1>
 
-        <MeterDisplay
-          bpm={bpm}
-          beatsPerMeasure={beatsPerMeasure}
-          isPlaying={isPlaying}
-          lastBeatType={lastBeatType}
-          pulseTick={pulseTick}
-        />
-
-        <div className="mb-3 grid gap-3 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.95fr)]">
-          <TempoControls
+      <section
+        className={`instrument ${isPlaying ? "is-playing" : ""}`}
+        aria-label="Mechanical metronome controls"
+      >
+        <div className="instrument-top">
+          <MetronomeHeader />
+          <MeterDisplay
             bpm={bpm}
+            beatsPerMeasure={beatsPerMeasure}
+            isPlaying={isPlaying}
+            lastBeatType={lastBeatType}
             maxBpm={MAX_BPM}
             minBpm={MIN_BPM}
-            onStepTempo={handleStepTempo}
-            onTempoInput={handleTempoInput}
-          />
-          <MeasureControls
-            beatsPerMeasure={beatsPerMeasure}
-            options={BEAT_OPTIONS}
-            onSelectBeatsPerMeasure={handleSelectBeatsPerMeasure}
+            onTempoChange={handleTempoChange}
+            pendulumDurationMs={pendulumDurationMs}
+            pulseTick={pulseTick}
           />
         </div>
 
-        <PulseSection
-          activeBeat={activeBeat}
-          beatsPerMeasure={beatsPerMeasure}
-          isPlaying={isPlaying}
-          onTogglePlayback={togglePlayback}
-        />
+        <div className="instrument-base">
+          <div className="control-deck">
+            <TempoControls
+              bpm={bpm}
+              maxBpm={MAX_BPM}
+              minBpm={MIN_BPM}
+              onTempoChange={handleTempoChange}
+            />
+            <MeasureControls
+              beatsPerMeasure={beatsPerMeasure}
+              options={BEAT_OPTIONS}
+              onSelectBeatsPerMeasure={setBeatsPerMeasure}
+            />
+          </div>
+
+          <PulseSection
+            activeBeat={activeBeat}
+            beatsPerMeasure={beatsPerMeasure}
+            isPlaying={isPlaying}
+            onTogglePlayback={togglePlayback}
+            playbackError={playbackError}
+          />
+        </div>
       </section>
+
+      <p className="keyboard-hint">
+        <kbd>Space</kbd>
+        <span>start / stop</span>
+      </p>
     </main>
   );
 }

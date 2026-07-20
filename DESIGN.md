@@ -2,50 +2,44 @@
 
 ## Theme
 
-A focused instrument-panel interface: dark outer canvas, lighter working surfaces, a single lime accent, and a technical readout that stays easy to scan during practice.
+A physical mechanical metronome on a minimal cool-neutral field. The UI is the instrument itself: a tapered near-black chassis, engraved brass scale, moving pendulum, and compact controls integrated into the weighted base.
 
 ## Color
 
-- `--bg`: deep charcoal-black for the page background.
-- `--shell`: dark graphite for the main frame.
-- `--panel`: slightly lighter graphite for control blocks.
-- `--panel-strong`: a brighter neutral layer for active or selected surfaces.
-- `--text`: near-white for body copy and labels.
-- `--muted`: cool gray for supporting text.
-- `--accent`: soft lime for primary selection and beat feedback.
-- `--screen`: pale green-gray for the meter display.
-- `--screen-text`: near-black for the readout.
+- `--backdrop`: cool neutral gray that keeps all attention on the instrument.
+- `--shell`: near-black lacquer for the metronome body.
+- `--ivory`: high-contrast instrument labeling.
+- `--brass`: tempo markings and interactive hardware.
+- `--red`: downbeat and playback feedback only.
 
 ## Typography
 
 - Use a system sans stack for UI copy.
-- Use a monospace readout for the BPM display so the number feels technical and stable.
-- Keep the title compact and bold instead of decorative.
-- Prefer sentence case over tracked all-caps labels.
+- Use a monospace readout only for the live BPM number.
+- Use the system sans stack for controls and a restrained serif for the maker's mark and traditional tempo terms.
+- Keep instrument labels compact and legible.
 
 ## Components
 
-- Main shell with a subtle border and layered surface treatment.
-- Meter display with a high-contrast readout and status light.
-- Tempo stepper and time-signature selector with consistent button shapes.
-- Beat track cells that show the current pulse without extra ornament.
-- A primary transport button that reads as the main action.
+- Tapered lacquered chassis with an engraved tempo scale.
+- Brass pendulum whose weight follows the selected BPM and whose swing follows playback.
+- Tempo slider and step buttons integrated into the base.
+- Compact meter selector, pulse lamps, and a physical transport switch.
 
 ## Layout
 
-- Top intro and meter first.
-- Two-column control grid on larger screens.
-- Single-column stacking on smaller screens.
-- The pulse strip and transport action stay visually grouped at the bottom.
+- The metronome is centered as one recognizable object rather than a collection of cards.
+- Tempo and meter controls share a compact row on larger screens and stack on phones.
+- Pulse feedback and transport remain grouped at the front of the base.
 
 ## Motion
 
-- Use short, functional transitions for hover and selection.
-- Keep beat feedback as a quick flash rather than a long animation.
-- Honor reduced-motion settings with instant state changes.
+- Synchronize the pendulum transition with the current BPM.
+- Keep beat lamps as quick state changes.
+- Stop the pendulum and use instant state changes when reduced motion is preferred.
 
 ## Shape
 
-- Prefer 12 to 20px radii instead of oversized pills.
-- Keep borders subtle and consistent.
-- Avoid heavy shadows and decorative glass effects.
+- Use small radii that resemble manufactured parts.
+- Reserve circular shapes for hardware, lamps, and step controls.
+- Use tactile highlights and compact shadows only where they clarify physical depth.
