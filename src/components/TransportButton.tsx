@@ -1,6 +1,14 @@
 import { Pause, Play } from "lucide-react";
 
-export function TransportButton({ isPlaying, onTogglePlayback }) {
+interface TransportButtonProps {
+  isPlaying: boolean;
+  onTogglePlayback: () => void;
+}
+
+export function TransportButton({
+  isPlaying,
+  onTogglePlayback,
+}: TransportButtonProps) {
   const Icon = isPlaying ? Pause : Play;
 
   return (

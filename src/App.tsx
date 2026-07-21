@@ -5,16 +5,13 @@ import { MeterDisplay } from "./components/MeterDisplay";
 import { MeasureControls } from "./components/MeasureControls";
 import { PulseSection } from "./components/PulseSection";
 import { TempoControls } from "./components/TempoControls";
+import { clamp } from "./tempo";
 import { useMetronomePlayback } from "./useMetronomePlayback";
 
 const MIN_BPM = 40;
 const MAX_BPM = 220;
 const DEFAULT_BPM = 100;
-const BEAT_OPTIONS = [2, 3, 4, 5, 6, 7, 8];
-
-function clamp(value, min, max) {
-  return Math.min(Math.max(value, min), max);
-}
+const BEAT_OPTIONS = [2, 3, 4, 5, 6, 7, 8] as const;
 
 export default function App() {
   const [bpm, setBpm] = useState(DEFAULT_BPM);
@@ -29,19 +26,23 @@ export default function App() {
     togglePlayback,
   } = useMetronomePlayback({ bpm, beatsPerMeasure });
 
-  const handleTempoChange = (nextValue) => {
+  const handleTempoChange = (nextValue: number) => {
     setBpm(clamp(Math.round(nextValue), MIN_BPM, MAX_BPM));
   };
 
   useEffect(() => {
-    const handleKeyDown = (event) => {
+    const handleKeyDown = (event: KeyboardEvent) => {
       if (event.code !== "Space" || event.repeat) {
         return;
       }
 
       const target = event.target;
       const isControl =
-        target instanceof HTMLButtonElement || target instanceof HTMLInputElement;
+        target instanceof HTMLButtonElement ||
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLSelectElement ||
+        target instanceof HTMLTextAreaElement ||
+        (target instanceof HTMLElement && target.isContentEditable);
 
       if (isControl) {
         return;

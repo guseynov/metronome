@@ -1,5 +1,20 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type MouseEvent,
+  type PointerEvent,
+  type ReactNode,
+} from "react";
 import { Minus, Plus } from "lucide-react";
+import {
+  clamp,
+  getTappedTempo,
+  getTempoValidationMessage,
+  parseTempo,
+} from "../tempo";
 
 const HOLD_DELAY_MS = 400;
 const INITIAL_REPEAT_MS = 150;
@@ -7,22 +22,13 @@ const MIN_REPEAT_MS = 65;
 const TAP_RESET_MS = 2000;
 const TAP_SAMPLE_SIZE = 4;
 
-function clamp(value, min, max) {
-  return Math.min(Math.max(value, min), max);
-}
+type CustomProperties = CSSProperties & Record<`--${string}`, string | number>;
 
-function normalizeTempo(value, minBpm, maxBpm, fallback) {
-  if (typeof value === "string" && value.trim() === "") {
-    return fallback;
-  }
-
-  const numericValue = Number(value);
-
-  if (!Number.isFinite(numericValue)) {
-    return fallback;
-  }
-
-  return clamp(Math.round(numericValue), minBpm, maxBpm);
+interface PressAndHoldButtonProps {
+  ariaLabel: string;
+  children: ReactNode;
+  disabled: boolean;
+  onStep: () => void;
 }
 
 function PressAndHoldButton({
@@ -30,13 +36,15 @@ function PressAndHoldButton({
   children,
   disabled,
   onStep,
-}) {
-  const holdTimerRef = useRef(null);
-  const repeatTimerRef = useRef(null);
+}: PressAndHoldButtonProps) {
+  const holdTimerRef = useRef<number | null>(null);
+  const repeatTimerRef = useRef<number | null>(null);
   const repeatCountRef = useRef(0);
   const onStepRef = useRef(onStep);
 
-  onStepRef.current = onStep;
+  useEffect(() => {
+    onStepRef.current = onStep;
+  }, [onStep]);
 
   const stopStepping = () => {
     if (holdTimerRef.current !== null) {
@@ -64,7 +72,7 @@ function PressAndHoldButton({
     repeatTimerRef.current = window.setTimeout(scheduleRepeat, repeatDelay);
   };
 
-  const handlePointerDown = (event) => {
+  const handlePointerDown = (event: PointerEvent<HTMLButtonElement>) => {
     if (disabled || event.button !== 0) {
       return;
     }
@@ -76,7 +84,7 @@ function PressAndHoldButton({
     holdTimerRef.current = window.setTimeout(scheduleRepeat, HOLD_DELAY_MS);
   };
 
-  const handlePointerEnd = (event) => {
+  const handlePointerEnd = (event: PointerEvent<HTMLButtonElement>) => {
     if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
@@ -84,7 +92,7 @@ function PressAndHoldButton({
     stopStepping();
   };
 
-  const handleClick = (event) => {
+  const handleClick = (event: MouseEvent<HTMLButtonElement>) => {
     // Pointer presses step on pointerdown. Keyboard and assistive activation
     // produce a click with detail === 0 and still need one discrete step.
     if (event.detail === 0 && !disabled) {
@@ -127,33 +135,33 @@ function PressAndHoldButton({
   );
 }
 
+interface TempoControlsProps {
+  bpm: number;
+  maxBpm: number;
+  minBpm: number;
+  onTempoChange: (bpm: number) => void;
+}
+
 export function TempoControls({
   bpm,
   maxBpm,
   minBpm,
   onTempoChange,
-}) {
+}: TempoControlsProps) {
   const [draftBpm, setDraftBpm] = useState(String(bpm));
   const [isEditing, setIsEditing] = useState(false);
   const [tapMessage, setTapMessage] = useState("");
   const [tapPulse, setTapPulse] = useState(0);
+  const [validationMessage, setValidationMessage] = useState("");
   const cancelBlurCommitRef = useRef(false);
   const editStartBpmRef = useRef(bpm);
-  const tapTimesRef = useRef([]);
-  const tapResetTimerRef = useRef(null);
+  const tapTimesRef = useRef<number[]>([]);
+  const tapResetTimerRef = useRef<number | null>(null);
   const fill = ((bpm - minBpm) / (maxBpm - minBpm)) * 100;
-  const draftNumber = Number(draftBpm);
-  const draftIsValid =
-    draftBpm.trim() !== "" &&
-    Number.isFinite(draftNumber) &&
-    draftNumber >= minBpm &&
-    draftNumber <= maxBpm;
-
-  useEffect(() => {
-    if (!isEditing) {
-      setDraftBpm(String(bpm));
-    }
-  }, [bpm, isEditing]);
+  const displayedBpm =
+    isEditing || validationMessage ? draftBpm : String(bpm);
+  const draftNumber = parseTempo(displayedBpm, minBpm, maxBpm);
+  const draftIsValid = draftNumber !== null;
 
   useEffect(() => {
     return () => {
@@ -164,15 +172,29 @@ export function TempoControls({
   }, []);
 
   const commitDraft = (value = draftBpm) => {
-    const nextBpm = normalizeTempo(value, minBpm, maxBpm, bpm);
+    const nextValidationMessage = getTempoValidationMessage(
+      value,
+      minBpm,
+      maxBpm,
+    );
+    const nextBpm = parseTempo(value, minBpm, maxBpm);
+
+    setValidationMessage(nextValidationMessage);
+
+    if (nextBpm === null) {
+      return false;
+    }
+
     setDraftBpm(String(nextBpm));
     onTempoChange(nextBpm);
-    return nextBpm;
+    return true;
   };
 
-  const handleBpmFocus = (event) => {
+  const handleBpmFocus = (event: React.FocusEvent<HTMLInputElement>) => {
     editStartBpmRef.current = bpm;
-    setDraftBpm(String(bpm));
+    if (!validationMessage) {
+      setDraftBpm(String(bpm));
+    }
     setIsEditing(true);
     event.currentTarget.select();
   };
@@ -188,10 +210,12 @@ export function TempoControls({
     setIsEditing(false);
   };
 
-  const handleBpmKeyDown = (event) => {
+  const handleBpmKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Enter") {
       event.preventDefault();
-      event.currentTarget.blur();
+      if (commitDraft()) {
+        event.currentTarget.blur();
+      }
       return;
     }
 
@@ -200,6 +224,7 @@ export function TempoControls({
       const restoredBpm = editStartBpmRef.current;
       cancelBlurCommitRef.current = true;
       setDraftBpm(String(restoredBpm));
+      setValidationMessage("");
       onTempoChange(restoredBpm);
       event.currentTarget.blur();
       return;
@@ -218,13 +243,14 @@ export function TempoControls({
 
     event.preventDefault();
     const step = event.shiftKey ? 5 : 1;
-    const currentBpm = normalizeTempo(draftBpm, minBpm, maxBpm, bpm);
+    const currentBpm = parseTempo(draftBpm, minBpm, maxBpm) ?? bpm;
     const nextBpm = clamp(currentBpm + direction * step, minBpm, maxBpm);
     setDraftBpm(String(nextBpm));
+    setValidationMessage("");
     onTempoChange(nextBpm);
   };
 
-  const handleSliderKeyDown = (event) => {
+  const handleSliderKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (!event.shiftKey) {
       return;
     }
@@ -244,7 +270,7 @@ export function TempoControls({
 
   const handleTapTempo = () => {
     const now = performance.now();
-    const previousTap = tapTimesRef.current.at(-1);
+    const previousTap = tapTimesRef.current[tapTimesRef.current.length - 1];
 
     if (previousTap === undefined || now - previousTap > TAP_RESET_MS) {
       tapTimesRef.current = [now];
@@ -254,21 +280,16 @@ export function TempoControls({
         -TAP_SAMPLE_SIZE,
       );
 
-      const intervals = tapTimesRef.current
-        .slice(1)
-        .map((tapTime, index) => tapTime - tapTimesRef.current[index]);
-      const averageInterval =
-        intervals.reduce((total, interval) => total + interval, 0) /
-        intervals.length;
-      const nextBpm = normalizeTempo(
-        60000 / averageInterval,
+      const nextBpm = getTappedTempo(
+        tapTimesRef.current,
         minBpm,
         maxBpm,
-        bpm,
       );
 
-      onTempoChange(nextBpm);
-      setTapMessage(`Tempo set to ${nextBpm} BPM`);
+      if (nextBpm !== null) {
+        onTempoChange(nextBpm);
+        setTapMessage(`Tempo set to ${nextBpm} BPM`);
+      }
     }
 
     setTapPulse((currentPulse) => currentPulse + 1);
@@ -289,7 +310,7 @@ export function TempoControls({
         <h2 id="tempo-heading">Tempo</h2>
 
         <label
-          className={`tempo-input-readout ${isEditing && !draftIsValid ? "tempo-input-readout-invalid" : ""}`}
+          className={`tempo-input-readout ${validationMessage ? "tempo-input-readout-invalid" : ""}`}
           htmlFor="tempo-bpm"
         >
           <span className="sr-only">Tempo in beats per minute</span>
@@ -301,14 +322,21 @@ export function TempoControls({
             inputMode="numeric"
             autoComplete="off"
             enterKeyHint="done"
-            aria-describedby="tempo-keyboard-help"
-            aria-invalid={isEditing && !draftIsValid}
+            aria-describedby={`tempo-keyboard-help${validationMessage ? " tempo-bpm-error" : ""}`}
+            aria-errormessage={validationMessage ? "tempo-bpm-error" : undefined}
+            aria-invalid={Boolean(validationMessage)}
             aria-valuemin={minBpm}
             aria-valuemax={maxBpm}
-            aria-valuenow={draftIsValid ? Number(draftBpm) : bpm}
-            value={draftBpm}
+            aria-valuenow={draftIsValid ? draftNumber : undefined}
+            value={displayedBpm}
             onBlur={handleBpmBlur}
-            onChange={(event) => setDraftBpm(event.target.value)}
+            onChange={(event) => {
+              const nextDraft = event.target.value;
+              setDraftBpm(nextDraft);
+              setValidationMessage(
+                getTempoValidationMessage(nextDraft, minBpm, maxBpm),
+              );
+            }}
             onFocus={handleBpmFocus}
             onKeyDown={handleBpmKeyDown}
           />
@@ -354,7 +382,7 @@ export function TempoControls({
             max={maxBpm}
             step="1"
             value={bpm}
-            style={{ "--slider-fill": `${fill}%` }}
+            style={{ "--slider-fill": `${fill}%` } as CustomProperties}
             onChange={(event) => onTempoChange(Number(event.target.value))}
             onKeyDown={handleSliderKeyDown}
           />
@@ -374,6 +402,16 @@ export function TempoControls({
         <span>↑↓ ±1</span>
         <span>Shift + ↑↓ ±5</span>
       </p>
+
+      {validationMessage ? (
+        <p
+          id="tempo-bpm-error"
+          className="tempo-validation-error"
+          role="status"
+        >
+          <span aria-hidden="true">!</span> {validationMessage}
+        </p>
+      ) : null}
 
       <span id="tap-tempo-status" className="sr-only" aria-live="polite">
         {tapMessage}

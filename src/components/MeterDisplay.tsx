@@ -1,5 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type PointerEvent,
+} from "react";
 import clsx from "clsx";
+import { clamp } from "../tempo";
 
 const SCALE_MARKS = [
   { bpm: 40, term: "Grave" },
@@ -17,14 +25,28 @@ const SCALE_MARKS = [
   { bpm: 220, term: "" },
 ];
 
-function clamp(value, min, max) {
-  return Math.min(Math.max(value, min), max);
-}
+type CustomProperties = CSSProperties & Record<`--${string}`, string | number>;
 
-function getStatusLabel(isPlaying, bpm, beatsPerMeasure) {
+function getStatusLabel(
+  isPlaying: boolean,
+  bpm: number,
+  beatsPerMeasure: number,
+) {
   return isPlaying
     ? `Playing at ${bpm} beats per minute in ${beatsPerMeasure}/4 time`
     : `Stopped at ${bpm} beats per minute in ${beatsPerMeasure}/4 time`;
+}
+
+interface MeterDisplayProps {
+  bpm: number;
+  beatsPerMeasure: number;
+  isPlaying: boolean;
+  lastBeatType: "accent" | "regular";
+  maxBpm: number;
+  minBpm: number;
+  onTempoChange: (bpm: number) => void;
+  pendulumDurationMs: number;
+  pulseTick: number;
 }
 
 export function MeterDisplay({
@@ -37,13 +59,13 @@ export function MeterDisplay({
   onTempoChange,
   pendulumDurationMs,
   pulseTick,
-}) {
+}: MeterDisplayProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [selectionPulse, setSelectionPulse] = useState(0);
-  const scaleGeometryRef = useRef(null);
+  const scaleGeometryRef = useRef<HTMLDivElement | null>(null);
   const dragOffsetRef = useRef(0);
-  const dragFrameRef = useRef(null);
-  const pendingPointerYRef = useRef(null);
+  const dragFrameRef = useRef<number | null>(null);
+  const pendingPointerYRef = useRef<number | null>(null);
   const draggingRef = useRef(false);
   const bpmRef = useRef(bpm);
   const progress = (bpm - minBpm) / (maxBpm - minBpm);
@@ -53,9 +75,11 @@ export function MeterDisplay({
   const swingDuration = isPlaying ? pendulumDurationMs : 180;
   const isSwinging = isPlaying && !isDragging;
 
-  bpmRef.current = bpm;
+  useEffect(() => {
+    bpmRef.current = bpm;
+  }, [bpm]);
 
-  const setTempoFromClientY = (clientY, offset = 0) => {
+  const setTempoFromClientY = (clientY: number, offset = 0) => {
     const scale = scaleGeometryRef.current;
 
     if (!scale) {
@@ -78,7 +102,7 @@ export function MeterDisplay({
     }
   };
 
-  const scheduleDragUpdate = (clientY) => {
+  const scheduleDragUpdate = (clientY: number) => {
     pendingPointerYRef.current = clientY;
 
     if (dragFrameRef.current !== null) {
@@ -97,7 +121,10 @@ export function MeterDisplay({
     });
   };
 
-  const finishDragging = (event, applyFinalPosition = true) => {
+  const finishDragging = (
+    event: PointerEvent<HTMLSpanElement>,
+    applyFinalPosition = true,
+  ) => {
     if (!draggingRef.current) {
       return;
     }
@@ -121,7 +148,7 @@ export function MeterDisplay({
     }
   };
 
-  const handleWeightPointerDown = (event) => {
+  const handleWeightPointerDown = (event: PointerEvent<HTMLSpanElement>) => {
     if (event.button !== 0) {
       return;
     }
@@ -143,13 +170,13 @@ export function MeterDisplay({
     event.currentTarget.setPointerCapture?.(event.pointerId);
   };
 
-  const handleWeightPointerMove = (event) => {
+  const handleWeightPointerMove = (event: PointerEvent<HTMLSpanElement>) => {
     if (draggingRef.current) {
       scheduleDragUpdate(event.clientY);
     }
   };
 
-  const handleWeightKeyDown = (event) => {
+  const handleWeightKeyDown = (event: KeyboardEvent<HTMLSpanElement>) => {
     const step = event.shiftKey ? 5 : 1;
     let nextBpm = null;
 
@@ -172,7 +199,7 @@ export function MeterDisplay({
     setSelectionPulse((currentPulse) => currentPulse + 1);
   };
 
-  const handleScalePointerDown = (event) => {
+  const handleScalePointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) {
       return;
     }
@@ -208,7 +235,7 @@ export function MeterDisplay({
                 "--mark-position": `${
                   ((markBpm - minBpm) / (maxBpm - minBpm)) * 100
                 }%`,
-              }}
+              } as CustomProperties}
             >
               <span className="scale-number scale-number-left">{markBpm}</span>
               <span className="scale-tick scale-tick-left" />
@@ -225,7 +252,9 @@ export function MeterDisplay({
               isDragging && "scale-selection-line-dragging",
               selectionPulse > 0 && "scale-selection-line-pulse",
             )}
-            style={{ "--selection-position": `${progress * 100}%` }}
+            style={
+              { "--selection-position": `${progress * 100}%` } as CustomProperties
+            }
           />
         </div>
 
@@ -246,7 +275,7 @@ export function MeterDisplay({
               isSwinging ? swingDirection * swingAmplitude : 0
             }deg`,
             "--swing-duration": `${swingDuration}ms`,
-          }}
+          } as CustomProperties}
         >
           <span className="pendulum-rod" aria-hidden="true" />
           <span

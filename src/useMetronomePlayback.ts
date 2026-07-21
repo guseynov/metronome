@@ -9,11 +9,33 @@ const START_DELAY_SECONDS = 0.025;
 const ENDPOINT_SETTLE_MS = 16;
 const MAX_CATCH_UP_BEATS = 32;
 
-function getAudioContextClass() {
-  return window.AudioContext || window.webkitAudioContext;
+type AudioContextConstructor = new (
+  contextOptions?: AudioContextOptions,
+) => AudioContext;
+
+interface AudioBuffers {
+  accent: AudioBuffer;
+  regular: AudioBuffer;
 }
 
-async function decodeAudioBuffer(context, source) {
+interface UseMetronomePlaybackOptions {
+  bpm: number;
+  beatsPerMeasure: number;
+}
+
+interface CancelOptions {
+  includePlaying?: boolean;
+}
+
+function getAudioContextClass(): AudioContextConstructor | undefined {
+  return (
+    window.AudioContext ||
+    (window as Window & { webkitAudioContext?: AudioContextConstructor })
+      .webkitAudioContext
+  );
+}
+
+async function decodeAudioBuffer(context: AudioContext, source: string) {
   const response = await fetch(source);
 
   if (!response.ok) {
@@ -23,12 +45,15 @@ async function decodeAudioBuffer(context, source) {
   return context.decodeAudioData(await response.arrayBuffer());
 }
 
-export function useMetronomePlayback({ bpm, beatsPerMeasure }) {
-  const audioContextRef = useRef(null);
-  const audioBuffersPromiseRef = useRef(null);
-  const schedulerIntervalRef = useRef(null);
-  const scheduledSourcesRef = useRef(new Map());
-  const visualTimersRef = useRef(new Set());
+export function useMetronomePlayback({
+  bpm,
+  beatsPerMeasure,
+}: UseMetronomePlaybackOptions) {
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const audioBuffersPromiseRef = useRef<Promise<AudioBuffers> | null>(null);
+  const schedulerIntervalRef = useRef<number | null>(null);
+  const scheduledSourcesRef = useRef(new Map<AudioBufferSourceNode, number>());
+  const visualTimersRef = useRef(new Set<number>());
   const currentBeatRef = useRef(0);
   const nextBeatTimeRef = useRef(0);
   const playingRef = useRef(false);
@@ -36,13 +61,16 @@ export function useMetronomePlayback({ bpm, beatsPerMeasure }) {
   const bpmRef = useRef(bpm);
   const beatsPerMeasureRef = useRef(beatsPerMeasure);
   const scheduleGenerationRef = useRef(0);
+  const startAttemptRef = useRef(0);
 
   const [isPlaying, setIsPlaying] = useState(false);
-  const [activeBeat, setActiveBeat] = useState(null);
-  const [lastBeatType, setLastBeatType] = useState("accent");
+  const [activeBeat, setActiveBeat] = useState<number | null>(null);
+  const [lastBeatType, setLastBeatType] = useState<"accent" | "regular">(
+    "accent",
+  );
   const [pulseTick, setPulseTick] = useState(0);
   const [pendulumDurationMs, setPendulumDurationMs] = useState(500);
-  const [playbackError, setPlaybackError] = useState(null);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
 
   const getSecondsPerBeat = () => 60 / bpmRef.current;
 
@@ -58,7 +86,7 @@ export function useMetronomePlayback({ bpm, beatsPerMeasure }) {
     visualTimersRef.current.clear();
   };
 
-  const stopScheduledSources = ({ includePlaying = false } = {}) => {
+  const stopScheduledSources = ({ includePlaying = false }: CancelOptions = {}) => {
     const context = audioContextRef.current;
     const now = context?.currentTime ?? 0;
 
@@ -77,11 +105,22 @@ export function useMetronomePlayback({ bpm, beatsPerMeasure }) {
     });
   };
 
-  const cancelPendingBeats = ({ includePlaying = false } = {}) => {
+  const cancelPendingBeats = ({ includePlaying = false }: CancelOptions = {}) => {
     scheduleGenerationRef.current += 1;
     clearScheduler();
     clearVisualTimers();
     stopScheduledSources({ includePlaying });
+  };
+
+  const resetFailedAudio = async (context: AudioContext | null) => {
+    if (audioContextRef.current === context) {
+      audioContextRef.current = null;
+      audioBuffersPromiseRef.current = null;
+    }
+
+    if (context && context.state !== "closed") {
+      await context.close().catch(() => {});
+    }
   };
 
   const ensureAudioReady = async () => {
@@ -110,27 +149,38 @@ export function useMetronomePlayback({ bpm, beatsPerMeasure }) {
       throw new Error("Audio playback could not be started.");
     }
 
-    const buffers = await audioBuffersPromiseRef.current;
+    const buffersPromise = audioBuffersPromiseRef.current;
+
+    if (!buffersPromise) {
+      throw new Error("Metronome sounds could not be prepared.");
+    }
+
+    const buffers = await buffersPromise;
     return { buffers, context };
   };
 
-  const startPendulumTravel = (travelSeconds) => {
+  const startPendulumTravel = (travelSeconds: number) => {
     setPendulumDurationMs(
       Math.max(80, travelSeconds * 1000 - ENDPOINT_SETTLE_MS),
     );
     setPulseTick((currentValue) => currentValue + 1);
   };
 
-  const updateVisualBeat = (beatIndex, isAccent) => {
+  const updateVisualBeat = (beatIndex: number, isAccent: boolean) => {
     setActiveBeat(beatIndex);
     setLastBeatType(isAccent ? "accent" : "regular");
     startPendulumTravel(getSecondsPerBeat());
   };
 
-  const scheduleVisualBeat = (context, beatIndex, isAccent, scheduledTime) => {
+  const scheduleVisualBeat = (
+    context: AudioContext,
+    beatIndex: number,
+    isAccent: boolean,
+    scheduledTime: number,
+  ) => {
     const generation = scheduleGenerationRef.current;
     const delay = Math.max(0, (scheduledTime - context.currentTime) * 1000);
-    let timerId = null;
+    let timerId = 0;
 
     timerId = window.setTimeout(() => {
       visualTimersRef.current.delete(timerId);
@@ -148,7 +198,12 @@ export function useMetronomePlayback({ bpm, beatsPerMeasure }) {
     visualTimersRef.current.add(timerId);
   };
 
-  const scheduleBeat = (context, buffers, beatIndex, scheduledTime) => {
+  const scheduleBeat = (
+    context: AudioContext,
+    buffers: AudioBuffers,
+    beatIndex: number,
+    scheduledTime: number,
+  ) => {
     const isAccent = beatIndex === 0;
     const source = context.createBufferSource();
     source.buffer = isAccent ? buffers.accent : buffers.regular;
@@ -189,7 +244,7 @@ export function useMetronomePlayback({ bpm, beatsPerMeasure }) {
       }
     }
 
-    audioBuffersPromiseRef.current?.then((buffers) => {
+    void audioBuffersPromiseRef.current?.then((buffers) => {
       while (
         playingRef.current &&
         nextBeatTimeRef.current <
@@ -213,7 +268,7 @@ export function useMetronomePlayback({ bpm, beatsPerMeasure }) {
     );
   };
 
-  const scheduleFirstBeat = (context, buffers) => {
+  const scheduleFirstBeat = (context: AudioContext, buffers: AudioBuffers) => {
     const firstTravelSeconds = START_DELAY_SECONDS + getSecondsPerBeat() / 2;
     const firstBeatTime = context.currentTime + firstTravelSeconds;
     currentBeatRef.current = 0;
@@ -223,7 +278,7 @@ export function useMetronomePlayback({ bpm, beatsPerMeasure }) {
     nextBeatTimeRef.current = firstBeatTime + getSecondsPerBeat();
   };
 
-  const reschedulePlayback = ({ restartMeasure }) => {
+  const reschedulePlayback = ({ restartMeasure }: { restartMeasure: boolean }) => {
     const context = audioContextRef.current;
 
     if (!playingRef.current || !context || context.state !== "running") {
@@ -232,7 +287,7 @@ export function useMetronomePlayback({ bpm, beatsPerMeasure }) {
 
     cancelPendingBeats({ includePlaying: restartMeasure });
 
-    audioBuffersPromiseRef.current?.then((buffers) => {
+    void audioBuffersPromiseRef.current?.then((buffers) => {
       if (!playingRef.current) {
         return;
       }
@@ -254,6 +309,7 @@ export function useMetronomePlayback({ bpm, beatsPerMeasure }) {
       return;
     }
 
+    startAttemptRef.current += 1;
     startingRef.current = false;
     playingRef.current = false;
     setIsPlaying(false);
@@ -266,13 +322,15 @@ export function useMetronomePlayback({ bpm, beatsPerMeasure }) {
       return;
     }
 
+    const attempt = startAttemptRef.current + 1;
+    startAttemptRef.current = attempt;
     startingRef.current = true;
     setPlaybackError(null);
 
     try {
       const { buffers, context } = await ensureAudioReady();
 
-      if (!startingRef.current) {
+      if (!startingRef.current || attempt !== startAttemptRef.current) {
         return;
       }
 
@@ -283,12 +341,21 @@ export function useMetronomePlayback({ bpm, beatsPerMeasure }) {
       scheduleFirstBeat(context, buffers);
       startScheduler();
     } catch (error) {
+      const failedContext = audioContextRef.current;
+      await resetFailedAudio(failedContext);
+
+      if (attempt !== startAttemptRef.current) {
+        return;
+      }
+
       startingRef.current = false;
       playingRef.current = false;
       setIsPlaying(false);
       setActiveBeat(null);
       setPlaybackError(
-        error instanceof Error ? error.message : "Audio playback failed.",
+        error instanceof Error
+          ? error.message
+          : "Sound could not be loaded. Press Start to try again.",
       );
     }
   };
@@ -299,6 +366,8 @@ export function useMetronomePlayback({ bpm, beatsPerMeasure }) {
     if (playingRef.current) {
       reschedulePlayback({ restartMeasure: false });
     }
+    // Playback control functions intentionally read mutable audio-clock refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bpm]);
 
   useEffect(() => {
@@ -307,11 +376,14 @@ export function useMetronomePlayback({ bpm, beatsPerMeasure }) {
     if (playingRef.current) {
       reschedulePlayback({ restartMeasure: true });
     }
+    // Playback control functions intentionally read mutable audio-clock refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [beatsPerMeasure]);
 
   useEffect(() => {
     return () => {
       playingRef.current = false;
+      startAttemptRef.current += 1;
       startingRef.current = false;
       cancelPendingBeats({ includePlaying: true });
 
@@ -322,6 +394,8 @@ export function useMetronomePlayback({ bpm, beatsPerMeasure }) {
         context.close().catch(() => {});
       }
     };
+    // The cleanup closes the one controller instance created by this hook.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const togglePlayback = useCallback(() => {
@@ -331,6 +405,8 @@ export function useMetronomePlayback({ bpm, beatsPerMeasure }) {
     }
 
     void startPlayback();
+    // start/stop are stable ref-driven controller operations by design.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return {

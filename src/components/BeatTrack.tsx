@@ -1,6 +1,11 @@
 import clsx from "clsx";
 
-export function BeatTrack({ activeBeat, beatsPerMeasure }) {
+interface BeatTrackProps {
+  activeBeat: number | null;
+  beatsPerMeasure: number;
+}
+
+export function BeatTrack({ activeBeat, beatsPerMeasure }: BeatTrackProps) {
   const beats = Array.from({ length: beatsPerMeasure }, (_, index) => index);
 
   return (
